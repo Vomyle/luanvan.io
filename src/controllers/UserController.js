@@ -1,191 +1,232 @@
-const UserService = require("../services/UserService");
-const JwtService = require("../services/JwtService");
-const UserController = {
-  addUser: async (req, res) => {
-    try {
-      const { Name, Email, Password } = req.body;
-      const reg = /^[a-zA-Z0-9._-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,4}$/;
-      const isCheckEmail = reg.test(Email);
-      if (!Name || !Email || !Password) {
-        return res.status(400).json({
-          status: "ERROR",
-          message: "All fields are required",
-        });
-      } else if (!isCheckEmail) {
-        return res.status(400).json({
-          status: "ERROR",
-          message: "Invalid email format",
-        });
-      }
-      const result = await UserService.createUser(req.body);
-      res.status(200).json(result);
-    } catch (err) {
-      if (err.message === "Email đã tồn tại trong hệ thống.") {
-        return res.status(400).json({
-          status: "ERROR",
-          message: err.message,
-        });
-      } else if (err.message === "Mật khẩu không chính xác.") {
-        return res.status(400).json({
-          status: "ERROR",
-          message: err.message,
-        });
-      }
-      res.status(500).json({
-        status: "ERROR",
-        message: "Internal Server Error",
-      });
-    }
-  },
-  loginUser: async (req, res) => {
-    try {
-      const { Name, Email, Password } = req.body;
-      const reg = /^[a-zA-Z0-9._-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,4}$/;
-      const isCheckEmail = reg.test(Email);
-      if (!Name || !Email || !Password) {
-        return res.status(400).json({
-          status: "ERROR",
-          message: "All fields are required",
-        });
-      } else if (!isCheckEmail) {
-        return res.status(400).json({
-          status: "ERROR",
-          message: "Invalid email format",
-        });
-      }
-      const result = await UserService.loginUser(req.body);
-      
-      res.status(200).json(result);
-    } catch (err) {
-      if (err.message === "Email chưa tồn tại trong hệ thống.") {
-        return res.status(400).json({
-          status: "ERROR",
-          message: err.message,
-        });
-      } else if (err.message === "Mật khẩu không chính xác.") {
-        return res.status(400).json({
-          status: "ERROR",
-          message: err.message,
-        });
-      }
-      res.status(500).json({
-        status: "ERROR",
-        message: "Internal  Server Error",
-      });
-    }
-  },
-  updateUser: async (req, res) => {
-    const userId = req.params.id;
-    const data = req.body;
-    console.log("userId", userId);
-    try {
-      if (!userId || typeof userId !== "string" || userId.trim() === "") {
-        return res.status(400).json({
-          status: "ERROR",
-          message: "User chưa tồn tại trong hệ thống.",
-        });
-      }
-      const result = await UserService.updateUser(userId, data);
-      res.status(200).json(result);
-    } catch (err) {
-      if (err.message === "User chưa tồn tại trong hệ thống.") {
-        return res.status(400).json({
-          status: "ERROR",
-          message: err.message,
-        });
-      }
-      res.status(500).json({
-        status: "ERROR",
-        message: "Internal Server Error",
-      });
-    }
-  },
-  deleteUser: async (req, res) => {
-    const userId = req.params.id;
+const bcrypt = require('bcryptjs')
+const jwt = require('jsonwebtoken')
+const User = require('../models/User')
+const ErrorResponse = require('../response/ErrorResponse')
+const ApiResponse = require('../response/ApiResponse')
+const { env } = require('../config/env')
+const { Op } = require('sequelize')
 
-    try {
-      if (!userId) {
-        return res.status(400).json({
-          status: "ERROR",
-          message: "User chưa tồn tại trong hệ thống.",
-        });
-      }
-      const result = await UserService.deleteUser(userId);
-      res.status(200).json(result);
-    } catch (err) {
-      if (err.message === "User chưa tồn tại trong hệ thống.") {
-        return res.status(400).json({
-          status: "ERROR",
-          message: err.message,
-        });
-      }
-      res.status(500).json({
-        status: "ERROR",
-        message: "Internal Server Error",
-      });
-    }
-  },
-  getAllUser: async (req, res) => {
-    try {
-      const result = await UserService.getAllUser();
-      res.status(200).json(result);
-    } catch (err) {
-      res.status(500).json({
-        status: "ERROR",
-        message: "Internal Server Error",
-      });
-    }
-  },
-  getDetailsUser: async (req, res) => {
-    const userId = req.params.id;
-    try {
-      if (!userId) {
-        return res.status(400).json({
-          status: "ERROR",
-          message: "User chưa tồn tại trong hệ thống.",
-        });
-      }
-      const result = await UserService.getDetailsUser(userId);
-      res.status(200).json(result);
-    } catch (err) {
-      if (err.message === "User chưa tồn tại trong hệ thống.") {
-        return res.status(400).json({
-          status: "ERROR",
-          message: err.message,
-        });
-      }
-      res.status(500).json({
-        status: "ERROR",
-        message: "Internal Server Error",
-      });
-    }
-  },
-  refreshToken: async (req, res) => {
-    const token = req.headers.token.split(" ")[1]
-    try {
-      if (!token) {
-        return res.status(200).json({
-          status: "ERROR",
-          message: "Token is require",
-        });
-      }
-      const result = await JwtService.refreshTokenJwtService(token)
-      res.status(200).json(result);
-    } catch (err) {
-      if (err.message === "Token is require") {
-        return res.status(400).json({
-          status: "ERROR",
-          message: err.message,
-        });
-      }
-      res.status(500).json({
-        status: "ERROR",
-        message: "Internal Server Error",
-      });
-    }
-  },
-};
+class UserController {
+    async getAll(req, res, next) {
+        try {
+            const { id: userId, role } = req.user
 
-module.exports = UserController;
+            let users = []
 
+            if (role === 'customer') {
+                users = await User.findAll({
+                    where: {
+                        role: {
+                            [Op.notIn]: ['customer', 'admin']
+                        }
+                    }
+                })
+            }
 
+            return ApiResponse.success(res, {
+                status: 200,
+                data: {
+                    users
+                }
+            })
+        } catch (error) {
+            next(error)
+        }
+    }
+
+    async getMe(req, res, next) {
+        try {
+            const { id: userId } = req.user
+            const user = await User.findByPk(userId, {
+                attributes: {
+                    exclude: ['password']
+                },
+
+            })
+            return ApiResponse.success(res, {
+                success: true,
+                data: {
+                    profile: user
+                }
+            })
+        } catch (err) {
+            next(err)
+        }
+    }
+    async getUser(req, res, next) {
+        try {
+            const { id: userId } = req.params
+            const user = await User.findByPk(userId)
+            if (!user) {
+                return ApiResponse.error(res, {
+                    status: 404,
+                    data: {
+                        message: 'Không tìm thấy user'
+                    }
+                })
+            }
+            return ApiResponse.success(res, {
+                status: 200,
+                data: user
+            })
+        } catch (err) {
+            next(err)
+        }
+    }
+
+    async updateMe(req, res, next) {
+        try {
+            const { name, phone, province, district, village, shortDescription } = req.body
+
+            const { id: userId } = req.user
+            const existedAddress = await Address.findOne({
+                where: {
+                    userId
+                }
+            })
+
+            if (existedAddress) {
+                // Cập nhật chỉ những trường có giá trị mới được nhập
+
+                existedAddress.phone = phone || existedAddress.phone
+                existedAddress.province = province || existedAddress.province
+                existedAddress.district = district || existedAddress.district
+                existedAddress.village = village || existedAddress.village
+                existedAddress.shortDescription = shortDescription || existedAddress.shortDescription
+
+                await existedAddress.save()
+            } else {
+                // Tạo mới nếu chưa có thông tin địa chỉ
+                await Address.create({
+                    userId,
+                    phone,
+                    province,
+                    district,
+                    village,
+                    shortDescription
+                })
+            }
+            if (name !== undefined && name !== null && name !== '') {
+                await User.update(
+                    {
+                        name
+                    },
+                    {
+                        where: {
+                            id: userId
+                        }
+                    }
+                )
+            }
+
+            if (req.file) {
+                const { filename } = req.file
+                await User.update(
+                    {
+                        avatar: filename
+                    },
+                    {
+                        where: {
+                            id: userId
+                        }
+                    }
+                )
+            }
+
+            const user = await User.findByPk(userId, {
+                include: [
+                    {
+                        model: Address,
+                        as: 'address'
+                    }
+                ]
+            })
+
+            return ApiResponse.success(res, {
+                status: 200,
+                data: {
+                    user,
+                    message: 'Cập nhật thông tin thành công'
+                }
+            })
+        } catch (err) {
+            next(err)
+        }
+    }
+
+    async updatePassword(req, res, next) {
+        try {
+            const { id: userId } = req.user
+            const { oldPassword, newPassword } = req.body
+
+            const user = await User.findByPk(userId)
+            const isMatch = bcrypt.compareSync(oldPassword, user.password)
+
+            if (!isMatch) {
+                return ApiResponse.error(res, {
+                    status: 400,
+                    data: {
+                        oldPassword: 'Mật khẩu cũ không chính xác'
+                    }
+                })
+            }
+            if (oldPassword === newPassword) {
+                return ApiResponse.error(res, {
+                    status: 400,
+                    data: {
+                        newPassword: 'Mật khẩu mới phải khác mật khẩu cũ'
+                    }
+                })
+            }
+
+            const hashedPassword = bcrypt.hashSync(newPassword)
+
+            user.password = hashedPassword
+            await user.save()
+
+            return ApiResponse.success(res, {
+                status: 200,
+                data: {
+                    message: 'Cập nhật mật khẩu thành công'
+                }
+            })
+        } catch (err) {
+            next(err)
+        }
+    }
+
+    async logout(req, res, next) {
+        try {
+            const token = req.headers.authorization?.replace('Bearer ', '')
+
+            if (!token) {
+                return ApiResponse.error(res, {
+                    status: 404,
+                    data: {
+                        message: 'Không tồn tại 1'
+                    }
+                })
+            }
+            const isTokenValid = jwt.verify(token, env.SECRET_KEY)
+            if (!isTokenValid) {
+                return ApiResponse.error(res, {
+                    status: 404,
+                    data: {
+                        message: 'Không tồn tại 2'
+                    }
+                })
+            }
+
+            return ApiResponse.success(res, {
+                status: 200,
+                data: {
+                    message: 'Đăng xuất tài khoản thành công'
+                }
+            })
+        } catch (err) {
+            next(err)
+        }
+    }
+}
+
+module.exports = new UserController()
